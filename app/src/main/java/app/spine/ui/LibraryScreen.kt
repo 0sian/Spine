@@ -1,6 +1,19 @@
 package app.spine.ui
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import app.spine.library.OpenLibrary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,6 +62,10 @@ fun LibraryScreen(
     lookupEnabled: Boolean,
     onToggleLookup: () -> Unit,
     onRename: (String, String) -> Unit,
+    onSearchCovers: suspend (Book) -> List<Int>,
+    onPickCover: (String, Int) -> Unit,
+    onPickCoverFile: (String, Uri) -> Unit,
+    onResetCover: (String) -> Unit,
     onGroup: (Set<String>, String) -> Unit,
     onUngroup: (Set<String>) -> Unit,
     onSort: (String, SortMode) -> Unit,
@@ -58,6 +75,12 @@ fun LibraryScreen(
     var selected by remember { mutableStateOf(setOf<String>()) }
     var showGroupDialog by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
+    var coverBook by remember { mutableStateOf<Book?>(null) }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked ->
+        val b = coverBook
+        if (picked != null && b != null) onPickCoverFile(b.uri, picked)
+        coverBook = null
+    }
 
     val open = items.filterIsInstance<ShelfItem.Group>().firstOrNull { it.name == openName }
     LaunchedEffect(open) { if (openName != null && open == null) openName = null }
@@ -78,8 +101,9 @@ fun LibraryScreen(
                 selecting -> SelectionBar(
                     count = selected.size,
                     canMove = open != null && selected.size == 1,
-                    canRename = selected.size == 1,
+                    canEdit = selected.size == 1,
                     onRename = { showRename = true },
+                    onCover = { coverBook = booksByUri[selected.first()]; selected = emptySet() },
                     canUngroup = selected.any { booksByUri[it]?.collection != null },
                     onMove = { d -> open?.let { g -> onMove(g.name, selected.first(), d) } },
                     onGroup = { showGroupDialog = true },
@@ -110,6 +134,16 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    coverBook?.let { b ->
+        CoverPage(
+            book = b, onSearch = onSearchCovers,
+            onPickId = { id -> onPickCover(b.uri, id); coverBook = null },
+            onGallery = { gallery.launch("image/*") },
+            onReset = { onResetCover(b.uri); coverBook = null },
+            onBack = { coverBook = null },
+        )
     }
 
     if (showRename && selected.size == 1) {
@@ -179,9 +213,10 @@ private fun CollectionBar(group: ShelfItem.Group, onBack: () -> Unit, onSort: (S
 
 @Composable
 private fun SelectionBar(
-    count: Int, canMove: Boolean, canRename: Boolean, canUngroup: Boolean,
-    onRename: () -> Unit, onMove: (Int) -> Unit, onGroup: () -> Unit, onUngroup: () -> Unit, onCancel: () -> Unit,
+    count: Int, canMove: Boolean, canEdit: Boolean, canUngroup: Boolean,
+    onRename: () -> Unit, onCover: () -> Unit, onMove: (Int) -> Unit, onGroup: () -> Unit, onUngroup: () -> Unit, onCancel: () -> Unit,
 ) {
+    var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("✕", color = TextHi, fontSize = 20.sp, modifier = Modifier.clickable(onClick = onCancel).padding(horizontal = 10.dp, vertical = 8.dp))
         Text("$count selected", color = TextHi, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -189,9 +224,17 @@ private fun SelectionBar(
             Pill("◀") { onMove(-1) }
             Pill("▶") { onMove(1) }
         }
-        if (canRename) Pill("Rename", onClick = onRename)
-        if (canUngroup) Pill("Ungroup", onClick = onUngroup)
         Pill("Group…", highlight = true, onClick = onGroup)
+        if (canEdit || canUngroup) {
+            Box {
+                Pill("⋮") { menu = true }
+                DropdownMenu(menu, { menu = false }) {
+                    if (canEdit) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; onCover() })
+                    if (canEdit) DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
+                    if (canUngroup) DropdownMenuItem(text = { Text("Ungroup") }, onClick = { menu = false; onUngroup() })
+                }
+            }
+        }
     }
 }
 
@@ -337,6 +380,77 @@ private fun GroupDialog(existing: List<String>, onPick: (String) -> Unit, onDism
         confirmButton = { TextButton(enabled = newName.isNotBlank(), onClick = { onPick(newName.trim()) }) { Text("Create", color = if (newName.isNotBlank()) TextHi else TextLo) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextLo) } },
     )
+}
+
+private sealed interface CoverState {
+    data object Loading : CoverState
+    data object Empty : CoverState
+    data object Offline : CoverState
+    data class Found(val ids: List<Int>) : CoverState
+}
+
+/** Pick another cover for a book: other editions from Open Library, a photo from the gallery, or the original. */
+@Composable
+private fun CoverPage(
+    book: Book, onSearch: suspend (Book) -> List<Int>,
+    onPickId: (Int) -> Unit, onGallery: () -> Unit, onReset: () -> Unit, onBack: () -> Unit,
+) {
+    var state by remember(book.uri) { mutableStateOf<CoverState>(CoverState.Loading) }
+    LaunchedEffect(book.uri) {
+        state = try {
+            onSearch(book).let { if (it.isEmpty()) CoverState.Empty else CoverState.Found(it) }
+        } catch (_: java.io.IOException) {
+            CoverState.Offline
+        } catch (_: org.json.JSONException) {
+            CoverState.Empty
+        }
+    }
+    BackHandler(onBack = onBack)
+    Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("‹", color = TextHi, fontSize = 32.sp, fontWeight = FontWeight.Light, modifier = Modifier.clickable(onClick = onBack).padding(horizontal = 14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Choose cover", color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(book.title, color = TextLo, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill("From photos", highlight = true, onClick = onGallery)
+            Pill("Original cover", onClick = onReset)
+        }
+        when (val st = state) {
+            CoverState.Loading -> CoverMessage("Searching Open Library…")
+            CoverState.Empty -> CoverMessage("No other covers found for this book.\nUse “From photos” to pick your own.")
+            CoverState.Offline -> CoverMessage("Can't reach Open Library.\nCheck your connection, or pick a photo instead.")
+            is CoverState.Found -> LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.navigationBarsPadding(),
+            ) {
+                gridItems(st.ids) { id ->
+                    RemoteImage(OpenLibrary.thumbUrl(id), Modifier.fillMaxWidth().aspectRatio(0.67f).clip(RoundedCornerShape(6.dp)).clickable { onPickId(id) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoverMessage(text: String) {
+    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = TextLo, fontSize = 15.sp, lineHeight = 22.sp)
+    }
+}
+
+@Composable
+private fun RemoteImage(url: String, modifier: Modifier) {
+    val img by produceState<ImageBitmap?>(null, url) {
+        value = withContext(Dispatchers.IO) { runCatching { OpenLibrary.image(url, 360)?.asImageBitmap() }.getOrNull() }
+    }
+    Box(modifier.background(Color(0xFF242424))) {
+        img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    }
 }
 
 @Composable

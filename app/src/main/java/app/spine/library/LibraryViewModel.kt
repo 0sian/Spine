@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
+import android.net.Uri
+import java.io.File
 import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,6 +37,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val sortModes: MutableMap<String, String> = loadMap("sort")
     /** Titles you typed in yourself; these beat every automatic cleanup. */
     private val renames: MutableMap<String, String> = loadMap("rename")
+    /** Covers you picked yourself: uri -> file name in [customDir]. */
+    private val customCovers: MutableMap<String, String> = loadMap("cover")
+    private val customDir = File(app.filesDir, "custom_covers").apply { mkdirs() }
     private val customOrder: MutableMap<String, List<String>> = loadOrders()
 
     /** uris of each shown collection in their current display order, for move up/down. */
@@ -124,6 +130,47 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         saveMaps(); viewModelScope.launch { publish() }
     }
 
+    // ---- covers --------------------------------------------------------------
+
+    /** Cover images other editions of this book have, from Open Library. Throws IOException when offline. */
+    suspend fun searchCovers(book: Book): List<Int> =
+        withContext(Dispatchers.IO) { OpenLibrary.coverIds(book.title, book.author) }
+
+    fun setCoverFromOpenLibrary(uri: String, id: Int) {
+        viewModelScope.launch {
+            val bmp = withContext(Dispatchers.IO) { runCatching { OpenLibrary.image(OpenLibrary.fullUrl(id), 800) }.getOrNull() }
+            if (bmp != null) saveCustomCover(uri, bmp)
+        }
+    }
+
+    fun setCoverFromGallery(uri: String, source: Uri) {
+        viewModelScope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                runCatching {
+                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 1 }
+                    getApplication<Application>().contentResolver.openInputStream(source)?.use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+                        ?.let { b -> if (b.width > 800) Bitmap.createScaledBitmap(b, 800, (b.height * 800f / b.width).toInt(), true) else b }
+                }.getOrNull()
+            }
+            if (bmp != null) saveCustomCover(uri, bmp)
+        }
+    }
+
+    fun resetCover(uri: String) {
+        customCovers.remove(uri)?.let { File(customDir, it).delete() }
+        saveMaps(); viewModelScope.launch { publish() }
+    }
+
+    private suspend fun saveCustomCover(uri: String, bmp: Bitmap) {
+        withContext(Dispatchers.IO) {
+            val name = java.security.MessageDigest.getInstance("SHA-1").digest(uri.toByteArray()).joinToString("") { "%02x".format(it) } + ".jpg"
+            File(customDir, name).outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            customCovers[uri] = name
+            saveMaps()
+        }
+        publish()
+    }
+
     fun toggleLookup() {
         _lookup.value = !_lookup.value
         prefs.edit().putBoolean("lookup", _lookup.value).apply()
@@ -165,6 +212,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .putString("collections", JSONObject(manual as Map<*, *>).toString())
             .putString("sort", JSONObject(sortModes as Map<*, *>).toString())
             .putString("rename", JSONObject(renames as Map<*, *>).toString())
+            .putString("cover", JSONObject(customCovers as Map<*, *>).toString())
             .putString("order", JSONObject().also { o -> customOrder.forEach { (k, v) -> o.put(k, JSONArray(v)) } }.toString())
             .apply()
     }
@@ -216,7 +264,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             data class Row(val book: Book, val entry: Entry, val lastRead: Long, val collection: String?)
             val rows = entries.map { e ->
                 val col = raw[e]?.takeIf { it in shown }
-                val bmp = e.coverFile?.let { BitmapFactory.decodeFile(library.coverPath(it).path) }
+                val bmp = customCovers[e.uri]?.let { File(customDir, it) }?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+                    ?: e.coverFile?.let { BitmapFactory.decodeFile(library.coverPath(it).path) }
                 val (bg, ink) = fallbackColors(e.uri)
                 Row(
                     Book(e.uri, displayTitle(e), displayAuthor(e), progressOf(e.uri), bmp?.asImageBitmap(), bg, ink, tiltFor(e.uri), collection = col),
