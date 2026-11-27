@@ -1,25 +1,32 @@
 package app.spine.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,40 +35,94 @@ import androidx.compose.ui.unit.sp
 private val Bg = Color(0xFF161616)
 private val TextHi = Color(0xFFF1F1F1)
 private val TextLo = Color(0xFF9A9A9A)
+private val Accent = Color(0xFFD7F25A)
 
 @Composable
 fun LibraryScreen(
-    books: List<Book>,
+    items: List<ShelfItem>,
+    collections: List<String>,
     status: String?,
     hasAccess: Boolean,
     onGrantAccess: () -> Unit,
     onRescan: () -> Unit,
     onOpen: (Book) -> Unit,
+    onGroup: (Set<String>, String) -> Unit,
+    onUngroup: (Set<String>) -> Unit,
+    onSort: (String, SortMode) -> Unit,
+    onMove: (String, String, Int) -> Unit,
 ) {
+    var openName by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var showGroupDialog by remember { mutableStateOf(false) }
+
+    val open = items.filterIsInstance<ShelfItem.Group>().firstOrNull { it.name == openName }
+    LaunchedEffect(open) { if (openName != null && open == null) openName = null }
+    val booksByUri = remember(items) {
+        items.flatMap { if (it is ShelfItem.Single) listOf(it.book) else (it as ShelfItem.Group).books }.associateBy { it.uri }
+    }
+
+    BackHandler(selected.isNotEmpty()) { selected = emptySet() }
+    BackHandler(open != null && selected.isEmpty()) { openName = null }
+
+    val shown: List<ShelfItem> = open?.books?.map { ShelfItem.Single(it) } ?: items
+    val badges = open?.books?.mapIndexed { i, b -> b.uri to i + 1 }?.toMap() ?: emptyMap()
+    val selecting = selected.isNotEmpty()
+
     Box(Modifier.fillMaxSize().background(Bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            TopBar(status, onRescan)
-            if (books.isEmpty() && status == null) {
+            when {
+                selecting -> SelectionBar(
+                    count = selected.size,
+                    canMove = open != null && selected.size == 1,
+                    canUngroup = selected.any { booksByUri[it]?.collection != null },
+                    onMove = { d -> open?.let { g -> onMove(g.name, selected.first(), d) } },
+                    onGroup = { showGroupDialog = true },
+                    onUngroup = { onUngroup(selected); selected = emptySet() },
+                    onCancel = { selected = emptySet() },
+                )
+                open != null -> CollectionBar(open, onBack = { openName = null }, onSort = { onSort(open.name, it) })
+                else -> HomeBar(status, onRescan)
+            }
+            if (items.isEmpty() && status == null) {
                 EmptyState(hasAccess, onGrantAccess, Modifier.weight(1f))
             } else {
-                LazyColumn(
-                    Modifier.weight(1f).navigationBarsPadding(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                ) {
-                    items(books.chunked(2)) { row -> ShelfRow(row, onOpen) }
+                LazyColumn(Modifier.weight(1f).navigationBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(shown.chunked(2)) { row ->
+                        PairShelf(
+                            row = row, selected = selected, badges = badges,
+                            onTap = { item ->
+                                when {
+                                    item is ShelfItem.Single && selecting ->
+                                        selected = if (item.book.uri in selected) selected - item.book.uri else selected + item.book.uri
+                                    item is ShelfItem.Single -> onOpen(item.book)
+                                    item is ShelfItem.Group && !selecting -> openName = item.name
+                                }
+                            },
+                            onLong = { item -> if (item is ShelfItem.Single) selected = selected + item.book.uri },
+                        )
+                    }
                 }
             }
         }
     }
+
+    if (showGroupDialog) {
+        GroupDialog(
+            existing = collections,
+            onPick = { name -> onGroup(selected, name); selected = emptySet(); showGroupDialog = false },
+            onDismiss = { showGroupDialog = false },
+        )
+    }
 }
 
+// ---- top bars ----------------------------------------------------------------
+
 @Composable
-private fun TopBar(status: String?, onRescan: () -> Unit) {
+private fun HomeBar(status: String?, onRescan: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(status ?: "", color = TextLo, fontSize = 13.sp)
         Box {
@@ -74,35 +135,188 @@ private fun TopBar(status: String?, onRescan: () -> Unit) {
 }
 
 @Composable
-private fun ShelfRow(row: List<Book>, onOpen: (Book) -> Unit) {
+private fun CollectionBar(group: ShelfItem.Group, onBack: () -> Unit, onSort: (SortMode) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("‹", color = TextHi, fontSize = 32.sp, fontWeight = FontWeight.Light, modifier = Modifier.clickable(onClick = onBack).padding(horizontal = 14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(group.name, color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${group.books.size} books", color = TextLo, fontSize = 12.sp)
+        }
+        Box {
+            Text(
+                group.sort.label + " ▾", color = TextHi, fontSize = 13.sp,
+                modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(50)).background(Color(0xFF2A2A2A)).clickable { menu = true }.padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+            DropdownMenu(menu, { menu = false }) {
+                listOf(SortMode.Series, SortMode.Release, SortMode.Title).forEach { m ->
+                    DropdownMenuItem(text = { Text(m.label + if (m == group.sort) "  ✓" else "") }, onClick = { menu = false; onSort(m) })
+                }
+                if (group.sort == SortMode.Custom) DropdownMenuItem(text = { Text("Custom order  ✓") }, onClick = { menu = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionBar(
+    count: Int, canMove: Boolean, canUngroup: Boolean,
+    onMove: (Int) -> Unit, onGroup: () -> Unit, onUngroup: () -> Unit, onCancel: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("✕", color = TextHi, fontSize = 20.sp, modifier = Modifier.clickable(onClick = onCancel).padding(horizontal = 10.dp, vertical = 8.dp))
+        Text("$count selected", color = TextHi, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        if (canMove) {
+            Pill("◀") { onMove(-1) }
+            Pill("▶") { onMove(1) }
+        }
+        if (canUngroup) Pill("Ungroup", onClick = onUngroup)
+        Pill("Group…", highlight = true, onClick = onGroup)
+    }
+}
+
+@Composable
+private fun Pill(text: String, highlight: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text, color = if (highlight) Color(0xFF161616) else TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (highlight) Accent else Color(0xFF2A2A2A)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+// ---- shelves -----------------------------------------------------------------
+
+@Composable
+private fun Plank() {
+    Box(
+        Modifier.fillMaxWidth().height(12.dp).shadow(8.dp)
+            .background(Brush.verticalGradient(listOf(Color(0xFF3E3E3E), Color(0xFF242424))))
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PairShelf(
+    row: List<ShelfItem>, selected: Set<String>, badges: Map<String, Int>,
+    onTap: (ShelfItem) -> Unit, onLong: (ShelfItem) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        // books standing on the plank
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            row.forEach { b -> Box(Modifier.weight(1f).padding(horizontal = 14.dp).clickable { onOpen(b) }, contentAlignment = Alignment.TopCenter) { BookCover(b) } }
+            row.forEach { item ->
+                Box(
+                    Modifier.weight(1f).padding(horizontal = 14.dp).combinedClickable(onClick = { onTap(item) }, onLongClick = { onLong(item) }),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    when (item) {
+                        is ShelfItem.Single -> {
+                            Box {
+                                BookCover(item.book)
+                                if (item.book.uri in selected) SelectedMark(Modifier.matchParentSize())
+                                badges[item.book.uri]?.let { Badge(it, Modifier.align(Alignment.TopStart)) }
+                            }
+                        }
+                        is ShelfItem.Group -> CollectionStack(item.books)
+                    }
+                }
+            }
             if (row.size == 1) Spacer(Modifier.weight(1f))
         }
-        // the plank
-        Box(
-            Modifier.fillMaxWidth().height(12.dp)
-                .shadow(8.dp)
-                .background(Brush.verticalGradient(listOf(Color(0xFF3E3E3E), Color(0xFF242424))))
-        )
-        // labels
+        Plank()
         Row(Modifier.fillMaxWidth().padding(start = 34.dp, end = 34.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            row.forEach { b -> BookLabel(b, Modifier.weight(1f).clickable { onOpen(b) }) }
+            row.forEach { item ->
+                Column(Modifier.weight(1f).combinedClickable(onClick = { onTap(item) }, onLongClick = { onLong(item) })) {
+                    when (item) {
+                        is ShelfItem.Single -> {
+                            val b = item.book
+                            Text(b.title, color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(b.author, color = TextLo, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (b.progress == 0) "Unread" else "${b.progress}% read", color = TextLo, fontSize = 12.sp)
+                        }
+                        is ShelfItem.Group -> {
+                            val read = item.books.count { it.progress >= 98 }
+                            Text(item.name, color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${item.books.size} books", color = TextLo, fontSize = 12.sp)
+                            Text(if (read == 0) "Collection" else "$read of ${item.books.size} read", color = TextLo, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
             if (row.size == 1) Spacer(Modifier.weight(1f))
         }
         Spacer(Modifier.height(16.dp))
     }
 }
 
+/** Several books standing behind each other, the first one in front: one tile for a whole collection. */
 @Composable
-private fun BookLabel(b: Book, modifier: Modifier) {
-    Column(modifier) {
-        Text(b.title, color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(b.author, color = TextLo, fontSize = 12.sp, maxLines = 1)
-        Text(if (b.progress == 0) "Unread" else "${b.progress}% read", color = TextLo, fontSize = 12.sp)
+private fun CollectionStack(books: List<Book>) {
+    val density = LocalDensity.current
+    Box(Modifier.fillMaxWidth()) {
+        val back = books.drop(1).take(2)
+        // furthest back first so the front book is painted last
+        back.reversed().forEachIndexed { i, b ->
+            val k = back.size - i // 2 = furthest
+            BookCover(
+                b.copy(tilt = 3f * k + 1f),
+                Modifier.graphicsLayer {
+                    translationX = with(density) { (15.dp * k).toPx() }
+                    translationY = with(density) { (-9.dp * k).toPx() }
+                    alpha = 0.92f
+                },
+            )
+        }
+        BookCover(books.first().copy(tilt = -1f))
     }
+}
+
+@Composable
+private fun SelectedMark(modifier: Modifier) {
+    Box(modifier.background(Color(0x33D7F25A)).border(3.dp, Accent, RoundedCornerShape(4.dp))) {
+        Text(
+            "✓", color = Color(0xFF161616), fontSize = 16.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(28.dp).clip(CircleShape).background(Accent).wrapContentSize(Alignment.Center),
+        )
+    }
+}
+
+@Composable
+private fun Badge(n: Int, modifier: Modifier) {
+    Text(
+        "$n", color = TextHi, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+        modifier = modifier.padding(6.dp).size(24.dp).clip(CircleShape).background(Color(0xCC161616)).wrapContentSize(Alignment.Center),
+    )
+}
+
+// ---- dialog / empty state ----------------------------------------------------------
+
+@Composable
+private fun GroupDialog(existing: List<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    var newName by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF242424), titleContentColor = TextHi, textContentColor = TextHi,
+        title = { Text("Add to collection", fontSize = 18.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                existing.forEach { name ->
+                    Text(
+                        name, color = TextHi, fontSize = 16.sp,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onPick(name) }.padding(vertical = 12.dp, horizontal = 8.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = newName, onValueChange = { newName = it }, singleLine = true,
+                    placeholder = { Text("New collection name…", color = TextLo) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextHi, unfocusedTextColor = TextHi, cursorColor = TextHi,
+                        focusedBorderColor = TextHi, unfocusedBorderColor = Color(0xFF555555),
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(enabled = newName.isNotBlank(), onClick = { onPick(newName.trim()) }) { Text("Create", color = if (newName.isNotBlank()) TextHi else TextLo) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextLo) } },
+    )
 }
 
 @Composable

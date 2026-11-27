@@ -21,16 +21,19 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             LibraryScreen(
-                books = vm.books.collectAsStateWithLifecycle().value,
+                items = vm.items.collectAsStateWithLifecycle().value,
+                collections = vm.collections.collectAsStateWithLifecycle().value,
                 status = vm.status.collectAsStateWithLifecycle().value,
                 hasAccess = vm.hasAccess.collectAsStateWithLifecycle().value,
                 onGrantAccess = {
                     startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
                 },
                 onRescan = vm::rescan,
-                onOpen = { book ->
-                    startActivity(Intent(this, ReaderActivity::class.java).setData(Uri.parse(book.uri)))
-                },
+                onOpen = { book -> startActivity(Intent(this, ReaderActivity::class.java).setData(Uri.parse(book.uri))) },
+                onGroup = vm::group,
+                onUngroup = vm::ungroup,
+                onSort = vm::setSort,
+                onMove = vm::move,
             )
         }
     }

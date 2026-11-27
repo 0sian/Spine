@@ -16,7 +16,18 @@ data class Book(
     val tilt: Float,
     val accent: Color = ink,
     val motif: Motif = Motif.None,
+    val collection: String? = null,
 )
+
+/** What the shelf shows: a lone book, or a whole collection that gets a shelf to itself. */
+enum class SortMode(val label: String) {
+    Series("Series order"), Release("Release date"), Title("A–Z"), Custom("Custom order")
+}
+
+sealed interface ShelfItem {
+    data class Single(val book: Book) : ShelfItem
+    data class Group(val name: String, val books: List<Book>, val sort: SortMode) : ShelfItem
+}
 
 private val fallbackPalette = listOf(
     Color(0xFF1B1B1B) to Color(0xFFF2EEE6),
