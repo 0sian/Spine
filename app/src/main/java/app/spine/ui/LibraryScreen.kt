@@ -59,6 +59,8 @@ fun LibraryScreen(
     onGrantAccess: () -> Unit,
     onRescan: () -> Unit,
     onOpen: (Book) -> Unit,
+    kind: String,
+    onKind: (String) -> Unit,
     lookupEnabled: Boolean,
     onToggleLookup: () -> Unit,
     onRename: (String, String) -> Unit,
@@ -111,10 +113,10 @@ fun LibraryScreen(
                     onCancel = { selected = emptySet() },
                 )
                 open != null -> CollectionBar(open, onBack = { openName = null }, onSort = { onSort(open.name, it) })
-                else -> HomeBar(status, lookupEnabled, onToggleLookup, onRescan)
+                else -> HomeBar(kind, onKind, status, lookupEnabled, onToggleLookup, onRescan)
             }
             if (items.isEmpty() && status == null) {
-                EmptyState(hasAccess, onGrantAccess, Modifier.weight(1f))
+                EmptyState(hasAccess, kind, onGrantAccess, Modifier.weight(1f))
             } else {
                 LazyColumn(Modifier.weight(1f).navigationBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(shown.chunked(2)) { row ->
@@ -167,13 +169,22 @@ fun LibraryScreen(
 // ---- top bars ----------------------------------------------------------------
 
 @Composable
-private fun HomeBar(status: String?, lookupEnabled: Boolean, onToggleLookup: () -> Unit, onRescan: () -> Unit) {
+private fun HomeBar(kind: String, onKind: (String) -> Unit, status: String?, lookupEnabled: Boolean, onToggleLookup: () -> Unit, onRescan: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(status ?: "", color = TextLo, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            listOf("book" to "Books", "comic" to "Comics").forEach { (k, label) ->
+                Text(
+                    label, fontSize = 20.sp, fontWeight = if (k == kind) FontWeight.Bold else FontWeight.Medium,
+                    color = if (k == kind) TextHi else Color(0xFF6C6C6C),
+                    modifier = Modifier.clickable { onKind(k) }.padding(vertical = 8.dp),
+                )
+            }
+            if (status != null) Text(status, color = TextLo, fontSize = 12.sp)
+        }
         Box {
             Text("⋮", color = TextHi, fontSize = 22.sp, modifier = Modifier.clickable { menu = true }.padding(horizontal = 12.dp, vertical = 8.dp))
             DropdownMenu(menu, { menu = false }) {
@@ -482,12 +493,12 @@ private fun RenameDialog(current: String, onSave: (String) -> Unit, onDismiss: (
 }
 
 @Composable
-private fun EmptyState(hasAccess: Boolean, onGrantAccess: () -> Unit, modifier: Modifier) {
+private fun EmptyState(hasAccess: Boolean, kind: String, onGrantAccess: () -> Unit, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(40.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (hasAccess) "No EPUBs in Documents/Books" else "Spine needs to see your books", color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(if (hasAccess) (if (kind == "comic") "No comics in Documents/Comics" else "No EPUBs in Documents/Books") else "Spine needs to see your books", color = TextHi, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(10.dp))
         Text(
-            if (hasAccess) "Drop some .epub files in there and pull down the menu to rescan."
+            if (hasAccess) (if (kind == "comic") "Drop .cbz or .cbr files in there and pull down the menu to rescan." else "Drop some .epub files in there and pull down the menu to rescan.")
             else "Allow file access once and your Documents/Books folder becomes the shelf.",
             color = TextLo, fontSize = 14.sp,
         )

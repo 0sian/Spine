@@ -6,6 +6,7 @@ object Titles {
     private val danglingOpen = Regex("\\s*[\\(\\[\\{].*$")
     private val siteTags = Regex("(?i)\\b(example-site)[\\w.\\-, ]*")
     private val editionNoise = Regex("(?i)\\s*[:–-]\\s*(the\\s+)?(illustrated|deluxe|special|anniversary|collector'?s|annotated|unabridged|expanded|revised|updated|movie tie-in)\\b.*$")
+    private val trailingEdition = Regex("(?i)\\s+(the\\s+)?((\\d+(st|nd|rd|th)\\s+)?anniversary|deluxe|special|collector'?s|absolute|complete|definitive)(\\s+deluxe)?\\s+edition\\s*$")
     private val numberedSeries = Regex("^(\\S+(?:\\s+\\S+)+?)\\s+0*\\d{1,2}\\s*[&:]\\s*(.+)$")
     private val seriesNumber = Regex("(?i)^.{0,40}\\s0*\\d{1,2}$")
 
@@ -30,7 +31,7 @@ object Titles {
         t = parts.joinToString(" - ")
 
         numberedSeries.find(t)?.let { t = it.groupValues[2] }
-        t = t.replace(editionNoise, "")
+        t = t.replace(editionNoise, "").replace(trailingEdition, "")
         if (authorTokens.isNotEmpty()) {
             Regex("(?i)\\s+by\\s+(.+)$").find(t)?.let { m -> if (tokens(m.groupValues[1]).all { it in authorTokens }) t = t.removeRange(m.range) }
         }

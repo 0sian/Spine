@@ -32,6 +32,7 @@ data class Entry(
     val canonicalAuthor: String? = null,
     val year: Int? = null,
     val looked: Boolean = false,
+    val kind: String = "book",
     val v: Int = 3,
 )
 
@@ -60,6 +61,7 @@ class Library(private val ctx: Context) {
                 canonicalAuthor = o.optString("canonicalAuthor").ifEmpty { null },
                 year = if (o.has("year")) o.getInt("year") else null,
                 looked = o.optBoolean("looked", false),
+                kind = o.optString("kind", "book").ifEmpty { "book" },
                 v = o.optInt("v", 1))
         }
     }.getOrDefault(emptyList())
@@ -70,7 +72,7 @@ class Library(private val ctx: Context) {
             arr.put(JSONObject().put("uri", it.uri).put("size", it.size).put("modified", it.modified)
                 .put("title", it.title).put("author", it.author).put("cover", it.coverFile ?: "")
                 .put("series", it.series ?: "").put("folder", it.folder ?: "").put("published", it.published ?: "").put("v", it.v)
-                .put("canonicalTitle", it.canonicalTitle ?: "").put("canonicalAuthor", it.canonicalAuthor ?: "").put("looked", it.looked)
+                .put("canonicalTitle", it.canonicalTitle ?: "").put("canonicalAuthor", it.canonicalAuthor ?: "").put("looked", it.looked).put("kind", it.kind)
                 .apply { it.year?.let { y -> put("year", y) } }
                 .apply { it.seriesIndex?.let { i -> put("seriesIndex", i) } })
         }
@@ -78,16 +80,18 @@ class Library(private val ctx: Context) {
     }
 
     /** [onProgress] gets (done, total, entriesSoFar) after each book. */
-    suspend fun scan(root: File, onProgress: (Int, Int, List<Entry>) -> Unit): List<Entry> = withContext(Dispatchers.IO) {
-        val files = root.walkTopDown().filter { it.isFile && it.extension.equals("epub", ignoreCase = true) }.toList()
+    suspend fun scan(roots: List<File>, onProgress: (Int, Int, List<Entry>) -> Unit): List<Entry> = withContext(Dispatchers.IO) {
+        val wanted = setOf("epub") + Comics.extensions
+        val files = roots.flatMap { r -> r.walkTopDown().filter { it.isFile && it.extension.lowercase() in wanted }.map { it to r }.toList() }
 
         val cached = loadCache().associateBy { it.uri }
         val result = mutableListOf<Entry>()
-        files.forEachIndexed { i, f ->
+        files.forEachIndexed { i, (f, root) ->
             val uri = Uri.fromFile(f).toString()
             val old = cached[uri]
             val entry = if (old != null && old.v >= 3 && old.size == f.length() && old.modified == f.lastModified()) old
-            else readEntry(f, root) ?: Entry(uri, f.length(), f.lastModified(), f.nameWithoutExtension, "", null, folder = folderOf(f, root))
+            else (if (f.extension.lowercase() in Comics.extensions) readComic(f, root) else readEntry(f, root))
+                ?: Entry(uri, f.length(), f.lastModified(), f.nameWithoutExtension, "", null, folder = folderOf(f, root), kind = if (f.extension.lowercase() in Comics.extensions) "comic" else "book")
             result += entry
             onProgress(i + 1, files.size, result.toList())
         }
@@ -99,6 +103,29 @@ class Library(private val ctx: Context) {
     }
 
     private fun folderOf(f: File, root: File): String? = f.parentFile?.takeIf { it != root }?.name
+
+    /** A comic's title comes from its file name, its cover is page one, and the year from "(2019)" in the name. */
+    private fun readComic(f: File, root: File): Entry? {
+        val archive = Comics.open(f) ?: return null
+        try {
+            var coverName: String? = null
+            if (archive.pageCount > 0) archive.page(0)?.let { bytes ->
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bmp != null) {
+                    val scaled = if (bmp.width > 480) Bitmap.createScaledBitmap(bmp, 480, (bmp.height * 480f / bmp.width).toInt(), true) else bmp
+                    coverName = sha(f.path) + ".jpg"
+                    File(coversDir, coverName!!).outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                }
+            }
+            val year = Regex("\\((1[89]\\d{2}|20\\d{2})\\)").findAll(f.nameWithoutExtension).lastOrNull()?.groupValues?.get(1)?.toInt()
+            return Entry(
+                Uri.fromFile(f).toString(), f.length(), f.lastModified(), f.nameWithoutExtension, "", coverName,
+                folder = folderOf(f, root), year = year, looked = true, kind = "comic",
+            )
+        } finally {
+            archive.close()
+        }
+    }
 
     private suspend fun readEntry(f: File, root: File): Entry? {
         val asset = retriever.retrieve(f).getOrElse { return null }

@@ -27,6 +27,7 @@ import org.json.JSONObject
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val library = Library(app)
     private val booksDir = java.io.File(Environment.getExternalStorageDirectory(), "Documents/Books")
+    private val comicsDir = java.io.File(Environment.getExternalStorageDirectory(), "Documents/Comics")
     private val reading = app.getSharedPreferences("spine_reader", 0)
     private val prefs = app.getSharedPreferences("spine_library", 0)
 
@@ -53,6 +54,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val status: StateFlow<String?> = _status
     private val _lookup = MutableStateFlow(prefs.getBoolean("lookup", true))
     val lookupEnabled: StateFlow<Boolean> = _lookup
+    private val _kind = MutableStateFlow(prefs.getString("kind", "book") ?: "book")
+    /** Which shelf is showing: "book" or "comic". */
+    val kind: StateFlow<String> = _kind
     private val _hasAccess = MutableStateFlow(Environment.isExternalStorageManager())
     val hasAccess: StateFlow<Boolean> = _hasAccess
 
@@ -74,12 +78,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun rescan() {
-        if (!Environment.isExternalStorageManager() || !booksDir.isDirectory) return
+        val roots = listOf(booksDir, comicsDir).filter { it.isDirectory }
+        if (!Environment.isExternalStorageManager() || roots.isEmpty()) return
         job?.cancel()
         job = viewModelScope.launch {
             _status.value = "Scanning…"
             try {
-                library.scan(booksDir) { done, total, list ->
+                library.scan(roots) { done, total, list ->
                     entries = list
                     _status.value = "Scanning $done/$total"
                     viewModelScope.launch { publish() }
@@ -171,6 +176,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         publish()
     }
 
+    fun setKind(k: String) {
+        _kind.value = k
+        prefs.edit().putString("kind", k).apply()
+        viewModelScope.launch { publish() }
+    }
+
     fun toggleLookup() {
         _lookup.value = !_lookup.value
         prefs.edit().putBoolean("lookup", _lookup.value).apply()
@@ -180,7 +191,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Match books against Open Library for clean titles and real first-publication years. */
     private suspend fun enrich() {
         if (!_lookup.value) return
-        val todo = entries.filter { !it.looked }
+        val todo = entries.filter { !it.looked && it.kind == "book" }
         for ((i, e) in todo.withIndex()) {
             _status.value = "Matching titles ${i + 1}/${todo.size}"
             val match = try {
@@ -250,6 +261,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun publish() {
         val built = withContext(Dispatchers.IO) {
+            val entries = this@LibraryViewModel.entries.filter { it.kind == _kind.value }
             val manuallyNamed = entries.filter { !manual[it.uri].isNullOrBlank() }.mapNotNull { manual[it.uri] }.toSet()
             val raw = entries.associateWith { rawCollection(it) }.toMutableMap()
             // an automatic collection needs at least two books; one you made yourself can hold one
@@ -259,6 +271,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             entries.filter { raw[it] == null && manual[it.uri] == null }.forEach { e ->
                 first.firstOrNull { e.title.startsWith(it, ignoreCase = true) || displayTitle(e).startsWith(it, ignoreCase = true) }?.let { raw[e] = it }
             }
+            // "Batman - The Killing Joke" and "Batman - Year One": two or more books sharing a leading name make a collection
+            entries.filter { raw[it] == null && manual[it.uri] == null && " - " in displayTitle(it) }
+                .groupBy { displayTitle(it).substringBefore(" - ").trim().lowercase() }
+                .filter { (lead, group) -> lead.length >= 3 && group.size >= 2 }
+                .forEach { (_, group) -> val name = displayTitle(group.first()).substringBefore(" - ").trim(); group.forEach { raw[it] = name } }
             val shown = shownNames()
 
             data class Row(val book: Book, val entry: Entry, val lastRead: Long, val collection: String?)
@@ -268,7 +285,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     ?: e.coverFile?.let { BitmapFactory.decodeFile(library.coverPath(it).path) }
                 val (bg, ink) = fallbackColors(e.uri)
                 Row(
-                    Book(e.uri, displayTitle(e), displayAuthor(e), progressOf(e.uri), bmp?.asImageBitmap(), bg, ink, tiltFor(e.uri), collection = col),
+                    Book(e.uri, displayTitle(e).let { t -> if (col != null && t.startsWith("$col - ", ignoreCase = true)) t.drop(col.length + 3) else t }, displayAuthor(e), progressOf(e.uri), bmp?.asImageBitmap(), bg, ink, tiltFor(e.uri), collection = col, kind = e.kind),
                     e, reading.getLong("read:${e.uri}", 0L), col,
                 )
             }

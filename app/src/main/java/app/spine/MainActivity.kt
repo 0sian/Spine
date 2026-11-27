@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.spine.library.LibraryViewModel
+import app.spine.reader.ComicActivity
 import app.spine.reader.ReaderActivity
 import app.spine.ui.LibraryScreen
 
@@ -29,7 +30,12 @@ class MainActivity : ComponentActivity() {
                     startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
                 },
                 onRescan = vm::rescan,
-                onOpen = { book -> startActivity(Intent(this, ReaderActivity::class.java).setData(Uri.parse(book.uri))) },
+                onOpen = { book ->
+                    val target = if (book.kind == "comic") ComicActivity::class.java else ReaderActivity::class.java
+                    startActivity(Intent(this, target).setData(Uri.parse(book.uri)))
+                },
+                kind = vm.kind.collectAsStateWithLifecycle().value,
+                onKind = vm::setKind,
                 lookupEnabled = vm.lookupEnabled.collectAsStateWithLifecycle().value,
                 onToggleLookup = vm::toggleLookup,
                 onRename = vm::rename,

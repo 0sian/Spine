@@ -28,6 +28,7 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 - **Collections.** A series is one book on the shelf: a small stack of its covers. Tap it to open the collection, with every book numbered in reading order. Spine groups books for you from their series metadata, a sub-folder, or a shared title ("Harry Potter 4 - …"), and never makes a collection out of a single book. To build your own, long-press a book, tap more, and hit **Group…**.
 - **Order that makes sense.** Sort a collection by series order, release date or A–Z, or nudge books earlier and later by hand. Books with no number in their metadata fill the gaps in the sequence, so an unnumbered book 1 lands where it belongs.
 - **Four reading themes, applied live.** Midnight, Parchment, Terminal and Paper each change page colour, text colour, typeface, line height and alignment together. Switch mid-chapter and the page re-flows instantly.
+- **Comics too.** A Comics tab reads `.cbz` and `.cbr` from `Documents/Comics`, with the same shelves, stacks and covers (page one). The comic reader swipes or taps to turn pages, pinches or double-taps to zoom, and has a right-to-left mode for manga. Files are opened by what they actually are, so a zip named `.cbr` still works.
 - **A reader that stays out of the way.** Full-screen, no chrome. Tap the edges to turn pages, tap the middle for the panel.
 - **Know where you are.** A progress slider you can drag, the current chapter name, and a full table of contents with nested parts.
 - **Remembers everything.** Reading position per book, your theme and font size, and a shelf ordered by what you read last.
@@ -87,6 +88,7 @@ Put your `.epub` files in `Documents/Books` on the phone. For a series, rely on 
 ## Roadmap
 
 - [ ] PDF support
+- [ ] Zoom toward the tapped point in the comic reader
 - [ ] Custom themes (edit colours, fonts and spacing in-app; share as JSON)
 - [ ] Themes generated from a book's cover colours
 - [ ] Bookmarks and highlights

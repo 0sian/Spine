@@ -17,6 +17,7 @@ data class Book(
     val accent: Color = ink,
     val motif: Motif = Motif.None,
     val collection: String? = null,
+    val kind: String = "book",
 )
 
 /** What the shelf shows: a lone book, or a whole collection that gets a shelf to itself. */
