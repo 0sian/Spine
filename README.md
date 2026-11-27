@@ -39,10 +39,16 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/library.png" width="220" /><br /><sub>The shelf</sub></td>
-    <td align="center"><img src="docs/screenshots/reader-parchment.png" width="220" /><br /><sub>Parchment</sub></td>
-    <td align="center"><img src="docs/screenshots/reader-terminal.png" width="220" /><br /><sub>Terminal</sub></td>
-    <td align="center"><img src="docs/screenshots/contents.png" width="220" /><br /><sub>Chapters</sub></td>
+    <td align="center"><img src="docs/screenshots/library.png" width="200" /><br /><sub>The shelf</sub></td>
+    <td align="center"><img src="docs/screenshots/collection.png" width="200" /><br /><sub>A collection, in reading order</sub></td>
+    <td align="center"><img src="docs/screenshots/selection.png" width="200" /><br /><sub>Select to group, rename, re-cover</sub></td>
+    <td align="center"><img src="docs/screenshots/covers.png" width="200" /><br /><sub>Pick any edition's cover</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/reader-midnight.png" width="200" /><br /><sub>Midnight</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-terminal.png" width="200" /><br /><sub>Terminal</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-panel.png" width="200" /><br /><sub>Parchment + the reader panel</sub></td>
+    <td align="center"><img src="docs/screenshots/contents.png" width="200" /><br /><sub>Chapters</sub></td>
   </tr>
 </table>
 
