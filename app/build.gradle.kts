@@ -39,5 +39,6 @@ dependencies {
     implementation("org.readium.kotlin-toolkit:readium-shared:$readium")
     implementation("org.readium.kotlin-toolkit:readium-streamer:$readium")
     implementation("org.readium.kotlin-toolkit:readium-navigator:$readium")
+    testImplementation("junit:junit:4.13.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

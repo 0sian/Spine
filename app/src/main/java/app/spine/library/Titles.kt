@@ -4,7 +4,8 @@ package app.spine.library
 object Titles {
     private val bracketed = Regex("\\s*[\\(\\[\\{][^\\(\\)\\[\\]\\{\\}]*[\\)\\]\\}]")
     private val danglingOpen = Regex("\\s*[\\(\\[\\{].*$")
-    private val siteTags = Regex("(?i)\\b(example-site)[\\w.\\-, ]*")
+    /** A website name left on the end of a file name: "Some Title - example-site.com". */
+    private val trailingSite = Regex("(?i)(?:\\s*[-–—|]\\s*|\\s+)[a-z0-9-]{3,}\\.(?:com|org|net|io|sk|se|is|to|me|cc|ru)\\s*$")
     private val editionNoise = Regex("(?i)\\s*[:–-]\\s*(the\\s+)?(illustrated|deluxe|special|anniversary|collector'?s|annotated|unabridged|expanded|revised|updated|movie tie-in)\\b.*$")
     private val trailingEdition = Regex("(?i)\\s+(the\\s+)?((\\d+(st|nd|rd|th)\\s+)?anniversary|deluxe|special|collector'?s|absolute|complete|definitive)(\\s+deluxe)?\\s+edition\\s*$")
     private val numberedSeries = Regex("^(\\S+(?:\\s+\\S+)+?)\\s+0*\\d{1,2}\\s*[&:]\\s*(.+)$")
@@ -20,7 +21,7 @@ object Titles {
         var t = raw.replace('_', ' ')
         var prev: String
         do { prev = t; t = t.replace(bracketed, "") } while (t != prev)
-        t = t.replace(danglingOpen, "").replace(siteTags, "")
+        t = t.replace(danglingOpen, "").replace(trailingSite, "")
 
         val authorTokens = tokens(author)
         fun looksAuthor(p: String) = p.contains(",") || (authorTokens.isNotEmpty() && tokens(p).let { it.isNotEmpty() && it.all { w -> w in authorTokens } })

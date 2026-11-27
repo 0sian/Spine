@@ -33,7 +33,7 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 - **Know where you are.** A progress slider you can drag, the current chapter name, and a full table of contents with nested parts.
 - **Remembers everything.** Reading position per book, your theme and font size, and a shelf ordered by what you read last.
 - **Swap any cover, Steam-art-manager style.** Long-press a book → ⋮ → **Change cover** for a grid of every edition's cover from Open Library, or pick a photo from your gallery. **Original cover** puts the one from the EPUB back.
-- **Clean titles, automatically.** File-derived metadata is a mess ("Rowling, J.K - Harry Potter 03 - Harry Potter and the Prisoner of Azkaban [some-site.com]"). Spine strips the brackets, author prefixes, series numbers and edition noise offline, then matches each book on [Open Library](https://openlibrary.org) for its proper title, author and first-publication year, which also powers release-date sorting. You can rename any book by hand, and the lookup can be switched off.
+- **Clean titles, automatically.** File-derived metadata is a mess ("Lastname, F. - Series Name 03 - The Real Title (2019) [some-site.com]"). Spine strips the brackets, author prefixes, series numbers and edition noise offline, then matches each book on [Open Library](https://openlibrary.org) for its proper title, author and first-publication year, which also powers release-date sorting. You can rename any book by hand, and the lookup can be switched off.
 - **Local and private.** It reads the EPUBs in a folder on your phone. No account and no telemetry. The only network use is the optional Open Library lookup, which sends a book's title and its author's surname and nothing else.
 
 ## Screenshots
