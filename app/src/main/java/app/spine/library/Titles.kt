@@ -27,7 +27,7 @@ object Titles {
         fun looksAuthor(p: String) = p.contains(",") || (authorTokens.isNotEmpty() && tokens(p).let { it.isNotEmpty() && it.all { w -> w in authorTokens } })
         var parts = t.split(Regex("\\s+[-–—]\\s+")).map { it.trim() }.filter { it.isNotEmpty() }
         parts = parts.filterNot { looksAuthor(it) }.ifEmpty { parts }
-        // leading "Harry Potter 03" style parts are series markers, not the title, if something else follows
+        // leading "Series Name 03" style parts are series markers, not the title, if something else follows
         while (parts.size > 1 && (seriesNumber.matches(parts.first()) || Regex("^\\d{1,3}$").matches(parts.first()))) parts = parts.drop(1)
         t = parts.joinToString(" - ")
 

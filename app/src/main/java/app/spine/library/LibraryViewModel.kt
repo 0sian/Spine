@@ -266,7 +266,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val raw = entries.associateWith { rawCollection(it) }.toMutableMap()
             // an automatic collection needs at least two books; one you made yourself can hold one
             fun shownNames() = raw.values.filterNotNull().groupingBy { it }.eachCount().filter { (name, n) -> n >= 2 || name in manuallyNamed }.keys
-            // books with no series data join a collection whose name their title starts with ("Harry Potter 4 - …")
+            // books with no series data join a collection whose name their title starts with ("Series Name 4 - …")
             val first = shownNames().filter { it.length >= 4 }.sortedByDescending { it.length }
             entries.filter { raw[it] == null && manual[it.uri] == null }.forEach { e ->
                 first.firstOrNull { e.title.startsWith(it, ignoreCase = true) || displayTitle(e).startsWith(it, ignoreCase = true) }?.let { raw[e] = it }

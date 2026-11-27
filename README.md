@@ -25,7 +25,7 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 ## Features
 
 - **A shelf, not a list.** Books stand on shelves, leaning at their own slight angles, drawn with the top of the pages visible over the cover. Covers, titles and authors come straight from each book's metadata.
-- **Collections.** A series is one book on the shelf: a small stack of its covers. Tap it to open the collection, with every book numbered in reading order. Spine groups books for you from their series metadata, a sub-folder, or a shared title ("Harry Potter 4 - …"), and never makes a collection out of a single book. To build your own, long-press a book, tap more, and hit **Group…**.
+- **Collections.** A series is one book on the shelf: a small stack of its covers. Tap it to open the collection, with every book numbered in reading order. Spine groups books for you from their series metadata, a sub-folder, or a shared title ("Series Name 4 - …"), and never makes a collection out of a single book. To build your own, long-press a book, tap more, and hit **Group…**.
 - **Order that makes sense.** Sort a collection by series order, release date or A–Z, or nudge books earlier and later by hand. Books with no number in their metadata fill the gaps in the sequence, so an unnumbered book 1 lands where it belongs.
 - **Four reading themes, applied live.** Midnight, Parchment, Terminal and Paper each change page colour, text colour, typeface, line height and alignment together. Switch mid-chapter and the page re-flows instantly.
 - **Comics too.** A Comics tab reads `.cbz` and `.cbr` from `Documents/Comics`, with the same shelves, stacks and covers (page one). The comic reader swipes or taps to turn pages, pinches or double-taps to zoom, and has a right-to-left mode for manga. Files are opened by what they actually are, so a zip named `.cbr` still works.
@@ -41,17 +41,17 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/library.png" width="200" /><br /><sub>The shelf</sub></td>
-    <td align="center"><img src="docs/screenshots/collection.png" width="200" /><br /><sub>A collection, in reading order</sub></td>
-    <td align="center"><img src="docs/screenshots/selection.png" width="200" /><br /><sub>Select to group, rename, re-cover</sub></td>
-    <td align="center"><img src="docs/screenshots/covers.png" width="200" /><br /><sub>Pick any edition's cover</sub></td>
+    <td align="center"><img src="docs/screenshots/collection.png" width="200" /><br /><sub>A series, in reading order</sub></td>
+    <td align="center"><img src="docs/screenshots/selection.png" width="200" /><br /><sub>Select to group, rename or re-cover</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/reader-midnight.png" width="200" /><br /><sub>Midnight</sub></td>
-    <td align="center"><img src="docs/screenshots/reader-terminal.png" width="200" /><br /><sub>Terminal</sub></td>
-    <td align="center"><img src="docs/screenshots/reader-panel.png" width="200" /><br /><sub>Parchment + the reader panel</sub></td>
-    <td align="center"><img src="docs/screenshots/contents.png" width="200" /><br /><sub>Chapters</sub></td>
+    <td align="center"><img src="docs/screenshots/contents.png" width="200" /><br /><sub>Chapters, nested by part</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-midnight.png" width="200" /><br /><sub>Midnight theme</sub></td>
+    <td align="center"><img src="docs/screenshots/reader-terminal.png" width="200" /><br /><sub>Terminal theme</sub></td>
   </tr>
 </table>
+
+<sub>All books shown are public domain, from [Standard Ebooks](https://standardebooks.org).</sub>
 
 ## How it works
 
@@ -83,7 +83,7 @@ echo "sdk.dir=$HOME/Android/Sdk" > local.properties   # your SDK path
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Put your `.epub` files in `Documents/Books` on the phone. For a series, rely on the books' own metadata, drop them in a sub-folder (`Documents/Books/Harry Potter/`), or select them in the app and group them by hand. On first launch Spine asks for **All files access**, because Android's folder picker refuses to hand out that folder. Grant it once and the shelf fills itself.
+Put your `.epub` files in `Documents/Books` on the phone. For a series, rely on the books' own metadata, drop them in a sub-folder (`Documents/Books/Sherlock Holmes/`), or select them in the app and group them by hand. On first launch Spine asks for **All files access**, because Android's folder picker refuses to hand out that folder. Grant it once and the shelf fills itself.
 
 ## Roadmap
 
