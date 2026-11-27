@@ -1,0 +1,16 @@
+# build output / tooling
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# machine-specific
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# signing material
+*.jks
+*.keystore
