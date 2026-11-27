@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,6 +32,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Manual choices: uri -> collection name, or "" meaning "keep this one out of any collection". */
     private val manual: MutableMap<String, String> = loadMap("collections")
     private val sortModes: MutableMap<String, String> = loadMap("sort")
+    /** Titles you typed in yourself; these beat every automatic cleanup. */
+    private val renames: MutableMap<String, String> = loadMap("rename")
     private val customOrder: MutableMap<String, List<String>> = loadOrders()
 
     /** uris of each shown collection in their current display order, for move up/down. */
@@ -42,6 +45,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val collections: StateFlow<List<String>> = _collections
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status
+    private val _lookup = MutableStateFlow(prefs.getBoolean("lookup", true))
+    val lookupEnabled: StateFlow<Boolean> = _lookup
     private val _hasAccess = MutableStateFlow(Environment.isExternalStorageManager())
     val hasAccess: StateFlow<Boolean> = _hasAccess
 
@@ -73,6 +78,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     _status.value = "Scanning $done/$total"
                     viewModelScope.launch { publish() }
                 }
+                enrich()
             } finally {
                 _status.value = null
                 publish()
@@ -113,6 +119,35 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         saveMaps(); viewModelScope.launch { publish() }
     }
 
+    fun rename(uri: String, title: String) {
+        if (title.isBlank()) renames.remove(uri) else renames[uri] = title.trim()
+        saveMaps(); viewModelScope.launch { publish() }
+    }
+
+    fun toggleLookup() {
+        _lookup.value = !_lookup.value
+        prefs.edit().putBoolean("lookup", _lookup.value).apply()
+        if (_lookup.value) rescan()
+    }
+
+    /** Match books against Open Library for clean titles and real first-publication years. */
+    private suspend fun enrich() {
+        if (!_lookup.value) return
+        val todo = entries.filter { !it.looked }
+        for ((i, e) in todo.withIndex()) {
+            _status.value = "Matching titles ${i + 1}/${todo.size}"
+            val match = try {
+                withContext(Dispatchers.IO) { OpenLibrary.lookup(Titles.clean(e.title, e.author), e.author) }
+            } catch (_: IOException) {
+                return // offline or rate limited: leave the rest for the next scan
+            }
+            entries = entries.map { if (it.uri == e.uri) it.copy(looked = true, canonicalTitle = match?.title, canonicalAuthor = match?.author, year = match?.year) else it }
+            withContext(Dispatchers.IO) { library.saveCache(entries) }
+            publish()
+            kotlinx.coroutines.delay(200)
+        }
+    }
+
     // ---- persistence --------------------------------------------------------
 
     private fun loadMap(key: String): MutableMap<String, String> = runCatching {
@@ -129,6 +164,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit()
             .putString("collections", JSONObject(manual as Map<*, *>).toString())
             .putString("sort", JSONObject(sortModes as Map<*, *>).toString())
+            .putString("rename", JSONObject(renames as Map<*, *>).toString())
             .putString("order", JSONObject().also { o -> customOrder.forEach { (k, v) -> o.put(k, JSONArray(v)) } }.toString())
             .apply()
     }
@@ -143,21 +179,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Manual choice wins, then the book's own series metadata, then the sub-folder it sits in. */
     private fun rawCollection(e: Entry): String? = (manual[e.uri] ?: e.series ?: e.folder)?.takeIf { it.isNotBlank() }
 
-    /**
-     * Metadata titles are often file names ("Rowling, J.K - Harry Potter 03 - Harry Potter and the Prisoner of Azkaban").
-     * Inside a collection, drop the author and "<series> <number>" prefixes.
-     */
-    private fun tidyTitle(title: String, collection: String): String {
-        val name = Regex.escape(collection)
-        val parts = title.split(" - ").map { it.trim() }
-        var drop = 0
-        for (i in 0 until parts.size - 1) {
-            val p = parts[i]
-            if (p.contains(",") || Regex("(?i)^$name\\s*0*\\d{0,2}$").matches(p) || Regex("^\\d{1,3}$").matches(p)) drop = i + 1 else break
-        }
-        val rest = parts.drop(drop).joinToString(" - ").ifBlank { title }
-        return rest.replace(Regex("(?i)^$name\\s*0*\\d{1,2}\\s*[&:–-]\\s*"), "").ifBlank { rest }
+    /** Your own rename, else Open Library's title when ours is incomplete, else our offline-cleaned title. */
+    private fun displayTitle(e: Entry): String {
+        renames[e.uri]?.takeIf { it.isNotBlank() }?.let { return it }
+        val cleaned = Titles.clean(e.title, e.author)
+        val canon = e.canonicalTitle
+        // when they only differ in casing/punctuation keep ours; otherwise theirs is the fuller, properly spelled one
+        return if (canon != null && Titles.norm(canon) != Titles.norm(cleaned)) canon else cleaned
     }
+
+    private fun displayAuthor(e: Entry): String {
+        val canon = e.canonicalAuthor
+        val ours = e.author
+        return if (canon != null && (ours.isBlank() || Regex("^[^,]+,\\s*[^,]+$").matches(ours))) canon else ours
+    }
+
+    private fun releaseYear(e: Entry): String =
+        (e.year ?: e.published?.take(4)?.toIntOrNull() ?: 9999).toString().padStart(4, '0')
 
     private fun numberIn(title: String, collection: String): Double? =
         Regex("(?i)${Regex.escape(collection)}\\s*0*(\\d{1,2})\\b").find(title)?.groupValues?.get(1)?.toDoubleOrNull()
@@ -171,7 +209,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             // books with no series data join a collection whose name their title starts with ("Harry Potter 4 - …")
             val first = shownNames().filter { it.length >= 4 }.sortedByDescending { it.length }
             entries.filter { raw[it] == null && manual[it.uri] == null }.forEach { e ->
-                first.firstOrNull { e.title.startsWith(it, ignoreCase = true) }?.let { raw[e] = it }
+                first.firstOrNull { e.title.startsWith(it, ignoreCase = true) || displayTitle(e).startsWith(it, ignoreCase = true) }?.let { raw[e] = it }
             }
             val shown = shownNames()
 
@@ -181,7 +219,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val bmp = e.coverFile?.let { BitmapFactory.decodeFile(library.coverPath(it).path) }
                 val (bg, ink) = fallbackColors(e.uri)
                 Row(
-                    Book(e.uri, if (col != null) tidyTitle(e.title, col) else e.title, e.author, progressOf(e.uri), bmp?.asImageBitmap(), bg, ink, tiltFor(e.uri), collection = col),
+                    Book(e.uri, displayTitle(e), displayAuthor(e), progressOf(e.uri), bmp?.asImageBitmap(), bg, ink, tiltFor(e.uri), collection = col),
                     e, reading.getLong("read:${e.uri}", 0L), col,
                 )
             }
@@ -198,10 +236,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val gaps = (1..members.size).filter { it !in taken }.iterator()
                 val filled = HashMap<String, Double>()
                 members.filter { known[it] == null }
-                    .sortedWith(compareBy<Row> { it.entry.published ?: "9999" }.thenBy { it.book.title.lowercase() })
+                    .sortedWith(compareBy<Row> { releaseYear(it.entry) }.thenBy { it.book.title.lowercase() })
                     .forEach { filled[it.entry.uri] = if (gaps.hasNext()) gaps.next().toDouble() else Double.MAX_VALUE }
                 fun series(r: Row) = known[r] ?: filled[r.entry.uri] ?: Double.MAX_VALUE
-                fun date(r: Row) = r.entry.published ?: "9999"
+                fun date(r: Row) = releaseYear(r.entry)
                 val ordered = when (mode) {
                     SortMode.Series -> members.sortedWith(compareBy<Row> { series(it) }.thenBy { date(it) }.thenBy { it.book.title.lowercase() })
                     SortMode.Release -> members.sortedWith(compareBy<Row> { date(it) }.thenBy { series(it) }.thenBy { it.book.title.lowercase() })

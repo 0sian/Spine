@@ -28,6 +28,10 @@ data class Entry(
     val seriesIndex: Double? = null,
     val folder: String? = null,
     val published: String? = null,
+    val canonicalTitle: String? = null,
+    val canonicalAuthor: String? = null,
+    val year: Int? = null,
+    val looked: Boolean = false,
     val v: Int = 3,
 )
 
@@ -52,16 +56,22 @@ class Library(private val ctx: Context) {
                 seriesIndex = if (o.has("seriesIndex")) o.getDouble("seriesIndex") else null,
                 folder = o.optString("folder").ifEmpty { null },
                 published = o.optString("published").ifEmpty { null },
+                canonicalTitle = o.optString("canonicalTitle").ifEmpty { null },
+                canonicalAuthor = o.optString("canonicalAuthor").ifEmpty { null },
+                year = if (o.has("year")) o.getInt("year") else null,
+                looked = o.optBoolean("looked", false),
                 v = o.optInt("v", 1))
         }
     }.getOrDefault(emptyList())
 
-    private fun saveCache(list: List<Entry>) {
+    fun saveCache(list: List<Entry>) {
         val arr = JSONArray()
         list.forEach {
             arr.put(JSONObject().put("uri", it.uri).put("size", it.size).put("modified", it.modified)
                 .put("title", it.title).put("author", it.author).put("cover", it.coverFile ?: "")
                 .put("series", it.series ?: "").put("folder", it.folder ?: "").put("published", it.published ?: "").put("v", it.v)
+                .put("canonicalTitle", it.canonicalTitle ?: "").put("canonicalAuthor", it.canonicalAuthor ?: "").put("looked", it.looked)
+                .apply { it.year?.let { y -> put("year", y) } }
                 .apply { it.seriesIndex?.let { i -> put("seriesIndex", i) } })
         }
         cacheFile.writeText(arr.toString())

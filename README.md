@@ -31,7 +31,8 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 - **A reader that stays out of the way.** Full-screen, no chrome. Tap the edges to turn pages, tap the middle for the panel.
 - **Know where you are.** A progress slider you can drag, the current chapter name, and a full table of contents with nested parts.
 - **Remembers everything.** Reading position per book, your theme and font size, and a shelf ordered by what you read last.
-- **Local and private.** It reads the EPUBs in a folder on your phone. No account, no network, no telemetry.
+- **Clean titles, automatically.** File-derived metadata is a mess ("Rowling, J.K - Harry Potter 03 - Harry Potter and the Prisoner of Azkaban [some-site.com]"). Spine strips the brackets, author prefixes, series numbers and edition noise offline, then matches each book on [Open Library](https://openlibrary.org) for its proper title, author and first-publication year, which also powers release-date sorting. You can rename any book by hand, and the lookup can be switched off.
+- **Local and private.** It reads the EPUBs in a folder on your phone. No account and no telemetry. The only network use is the optional Open Library lookup, which sends a book's title and its author's surname and nothing else.
 
 ## Screenshots
 
@@ -52,6 +53,7 @@ Reading apps are either clunky or boring. Spine is neither — your EPUBs stand 
 | **Theme engine** | A theme is a set of tokens (`bg`, `text`, `font`, `lineHeight`, `margins`, `align`) pushed to the page as Readium preferences. Adding a theme is one line in `ReaderTheme.kt`. |
 | **Shelf renderer** | `BookCover.kt` draws each book on a Compose `Canvas`: the cover art, a foreshortened page-top and a fore-edge, plus a stable per-book lean. |
 | **Library scanner** | Walks `Documents/Books`, reads metadata and covers with Readium, caches covers as JPEGs and metadata as JSON so launches are instant. |
+| **Title cleanup** | `Titles.kt` cleans names offline; `OpenLibrary.kt` fuzzy-matches the result against Open Library and keeps the proper title, author and year in the cache. |
 
 ```
 app/src/main/java/app/spine/

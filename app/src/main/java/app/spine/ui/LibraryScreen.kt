@@ -46,6 +46,9 @@ fun LibraryScreen(
     onGrantAccess: () -> Unit,
     onRescan: () -> Unit,
     onOpen: (Book) -> Unit,
+    lookupEnabled: Boolean,
+    onToggleLookup: () -> Unit,
+    onRename: (String, String) -> Unit,
     onGroup: (Set<String>, String) -> Unit,
     onUngroup: (Set<String>) -> Unit,
     onSort: (String, SortMode) -> Unit,
@@ -54,6 +57,7 @@ fun LibraryScreen(
     var openName by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf(setOf<String>()) }
     var showGroupDialog by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
 
     val open = items.filterIsInstance<ShelfItem.Group>().firstOrNull { it.name == openName }
     LaunchedEffect(open) { if (openName != null && open == null) openName = null }
@@ -74,6 +78,8 @@ fun LibraryScreen(
                 selecting -> SelectionBar(
                     count = selected.size,
                     canMove = open != null && selected.size == 1,
+                    canRename = selected.size == 1,
+                    onRename = { showRename = true },
                     canUngroup = selected.any { booksByUri[it]?.collection != null },
                     onMove = { d -> open?.let { g -> onMove(g.name, selected.first(), d) } },
                     onGroup = { showGroupDialog = true },
@@ -81,7 +87,7 @@ fun LibraryScreen(
                     onCancel = { selected = emptySet() },
                 )
                 open != null -> CollectionBar(open, onBack = { openName = null }, onSort = { onSort(open.name, it) })
-                else -> HomeBar(status, onRescan)
+                else -> HomeBar(status, lookupEnabled, onToggleLookup, onRescan)
             }
             if (items.isEmpty() && status == null) {
                 EmptyState(hasAccess, onGrantAccess, Modifier.weight(1f))
@@ -106,6 +112,15 @@ fun LibraryScreen(
         }
     }
 
+    if (showRename && selected.size == 1) {
+        val uri = selected.first()
+        RenameDialog(
+            current = booksByUri[uri]?.title.orEmpty(),
+            onSave = { onRename(uri, it); showRename = false; selected = emptySet() },
+            onDismiss = { showRename = false },
+        )
+    }
+
     if (showGroupDialog) {
         GroupDialog(
             existing = collections,
@@ -118,7 +133,7 @@ fun LibraryScreen(
 // ---- top bars ----------------------------------------------------------------
 
 @Composable
-private fun HomeBar(status: String?, onRescan: () -> Unit) {
+private fun HomeBar(status: String?, lookupEnabled: Boolean, onToggleLookup: () -> Unit, onRescan: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
@@ -129,6 +144,10 @@ private fun HomeBar(status: String?, onRescan: () -> Unit) {
             Text("⋮", color = TextHi, fontSize = 22.sp, modifier = Modifier.clickable { menu = true }.padding(horizontal = 12.dp, vertical = 8.dp))
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("Rescan library") }, onClick = { menu = false; onRescan() })
+                DropdownMenuItem(
+                    text = { Text("Look up clean titles online  " + if (lookupEnabled) "✓" else "✗") },
+                    onClick = { menu = false; onToggleLookup() },
+                )
             }
         }
     }
@@ -160,8 +179,8 @@ private fun CollectionBar(group: ShelfItem.Group, onBack: () -> Unit, onSort: (S
 
 @Composable
 private fun SelectionBar(
-    count: Int, canMove: Boolean, canUngroup: Boolean,
-    onMove: (Int) -> Unit, onGroup: () -> Unit, onUngroup: () -> Unit, onCancel: () -> Unit,
+    count: Int, canMove: Boolean, canRename: Boolean, canUngroup: Boolean,
+    onRename: () -> Unit, onMove: (Int) -> Unit, onGroup: () -> Unit, onUngroup: () -> Unit, onCancel: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("✕", color = TextHi, fontSize = 20.sp, modifier = Modifier.clickable(onClick = onCancel).padding(horizontal = 10.dp, vertical = 8.dp))
@@ -170,6 +189,7 @@ private fun SelectionBar(
             Pill("◀") { onMove(-1) }
             Pill("▶") { onMove(1) }
         }
+        if (canRename) Pill("Rename", onClick = onRename)
         if (canUngroup) Pill("Ungroup", onClick = onUngroup)
         Pill("Group…", highlight = true, onClick = onGroup)
     }
@@ -315,6 +335,34 @@ private fun GroupDialog(existing: List<String>, onPick: (String) -> Unit, onDism
             }
         },
         confirmButton = { TextButton(enabled = newName.isNotBlank(), onClick = { onPick(newName.trim()) }) { Text("Create", color = if (newName.isNotBlank()) TextHi else TextLo) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextLo) } },
+    )
+}
+
+@Composable
+private fun RenameDialog(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF242424), titleContentColor = TextHi, textContentColor = TextHi,
+        title = { Text("Rename book", fontSize = 18.sp) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextHi, unfocusedTextColor = TextHi, cursorColor = TextHi,
+                        focusedBorderColor = TextHi, unfocusedBorderColor = Color(0xFF555555),
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Back to automatic title", color = TextLo, fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 12.dp).clip(RoundedCornerShape(8.dp)).clickable { onSave("") }.padding(vertical = 8.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSave(text.trim()) }) { Text("Save", color = if (text.isNotBlank()) TextHi else TextLo) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextLo) } },
     )
 }
